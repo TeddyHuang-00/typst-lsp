@@ -1,4 +1,5 @@
 use comemo::Track;
+use tokio::task::block_in_place;
 use typst::doc::Document;
 use typst::eval::{Module, Route, Tracer};
 use typst::World;
@@ -16,7 +17,7 @@ impl TypstServer {
         workspace: &Workspace,
         source: &Source,
     ) -> (Option<Document>, LspDiagnostics) {
-        let result = compile(workspace, source.as_ref());
+        let result = block_in_place(|| compile(workspace, source.as_ref()));
 
         let (document, errors) = match result {
             Ok(document) => (Some(document), Default::default()),
@@ -43,12 +44,14 @@ impl TypstServer {
     ) -> (Option<Module>, LspDiagnostics) {
         let route = Route::default();
         let mut tracer = Tracer::default();
-        let result = typst::eval::eval(
-            (workspace as &dyn World).track(),
-            route.track(),
-            tracer.track_mut(),
-            source.as_ref(),
-        );
+        let result = block_in_place(|| {
+            typst::eval::eval(
+                (workspace as &dyn World).track(),
+                route.track(),
+                tracer.track_mut(),
+                source.as_ref(),
+            )
+        });
 
         let (module, errors) = match result {
             Ok(module) => (Some(module), Default::default()),

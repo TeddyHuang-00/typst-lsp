@@ -20,6 +20,9 @@ export function activate(context: ExtensionContext): Promise<void> {
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "typst" }],
+        markdown: {
+            isTrusted: true,
+        },
     };
 
     client = new LanguageClient("typst-lsp", "Typst Language Server", serverOptions, clientOptions);

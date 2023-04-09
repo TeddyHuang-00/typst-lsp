@@ -66,6 +66,21 @@ impl LanguageServer for TypstServer {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        let watch_files_error = self
+            .client
+            .register_capability(vec![self.get_watcher_registration()])
+            .await
+            .err();
+
+        if let Some(error) = watch_files_error {
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("could not register to watch Typst files: {error}"),
+                )
+                .await;
+        }
+
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
@@ -80,15 +95,14 @@ impl LanguageServer for TypstServer {
         let text = params.text_document.text;
 
         let mut workspace = self.workspace.write().await;
-        workspace.sources.insert(&uri, text);
+        let mut sources = workspace.sources.write().await;
+
+        let id = sources.open(uri, text);
 
         let workspace = workspace.downgrade();
         let config = self.config.read().await;
 
-        let source = workspace
-            .sources
-            .get_source_by_uri(&uri)
-            .expect("source should exist just after adding it");
+        let source = sources.get_cached_source_by_id(id);
 
         self.on_source_changed(&workspace, &config, source).await;
     }
@@ -105,12 +119,9 @@ impl LanguageServer for TypstServer {
 
         let mut workspace = self.workspace.write().await;
 
-        let source_id = workspace
-            .sources
-            .get_id_by_uri(&uri)
-            .expect("source should exist after being changed");
+        let source_id = workspace.sources.get_known_id_by_uri(&uri);
 
-        let source = workspace.sources.get_mut_source_by_id(source_id);
+        let source = workspace.sources.get_mut_cached_source_by_id(source_id);
         for change in changes {
             self.apply_single_document_change(source, change);
         }
@@ -118,7 +129,7 @@ impl LanguageServer for TypstServer {
         let workspace = workspace.downgrade();
         let config = self.config.read().await;
 
-        let source = workspace.sources.get_source_by_id(source_id);
+        let source = workspace.sources.get_cached_source_by_id(source_id);
 
         self.on_source_changed(&workspace, &config, source).await;
     }
@@ -137,6 +148,15 @@ impl LanguageServer for TypstServer {
         if config.export_pdf == ExportPdfMode::OnSave {
             self.run_diagnostics_and_export(&workspace, source).await;
         }
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("changed watched files: {params:#?}"),
+            )
+            .await;
     }
 
     async fn execute_command(

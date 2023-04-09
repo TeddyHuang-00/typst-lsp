@@ -1,5 +1,7 @@
 use comemo::Prehashed;
-use typst::diag::{FileError, FileResult};
+use tokio::runtime::Handle;
+use tower_lsp::lsp_types::MessageType;
+use typst::diag::FileResult;
 use typst::eval::Library;
 use typst::font::{Font, FontBook};
 use typst::util::Buffer;
@@ -47,16 +49,45 @@ impl World for Workspace {
 
     fn resolve(&self, typst_path: &TypstPath) -> FileResult<TypstSourceId> {
         let lsp_uri = typst_to_lsp::path_to_uri(typst_path).unwrap();
-        let lsp_id = self.sources.get_id_by_uri(&lsp_uri);
-        match lsp_id {
-            Some(lsp_id) => Ok(lsp_id.into()),
-            None => Err(FileError::NotFound(typst_path.to_owned())),
-        }
+
+        Handle::current()
+            .block_on(async {
+                let sources = self.sources.write().await;
+                match sources.get_or_init_id_by_uri(lsp_uri).await {
+                    // Try caching the file here, because `source` doesn't allow us to return errors
+                    Ok(id) => sources.cache_source_by_id(id).await.map(|()| id),
+                    Err(error) => Err(error),
+                }
+            })
+            .map(Into::into)
     }
 
     fn source(&self, typst_id: TypstSourceId) -> &TypstSource {
-        let lsp_source = self.sources.get_source_by_id(typst_id.into());
-        lsp_source.as_ref()
+        let id = typst_id.into();
+
+        let sources = self.sources.blocking_read();
+
+        match sources.try_get_cached_source_by_id(id) {
+            Some(source) => source.as_ref(),
+            None => {
+                // We cache in `resolve` to try and avoid this, since we can't return an error here
+                drop(sources);
+                Handle::current().block_on(async {
+                    let sources = self.sources.write().await;
+
+                    match sources.cache_source_by_id(id).await {
+                        Ok(()) => sources.get_cached_source_by_id(id).as_ref(),
+                        Err(error) => {
+                            self.client.log_message(
+                                MessageType::ERROR,
+                                format!("unable to get source id {typst_id:?} because an error occurred: {error}")
+                            ).await;
+                            &self.detached_source
+                        }
+                    }
+                })
+            }
+        }
     }
 
     fn book(&self) -> &Prehashed<FontBook> {
@@ -64,13 +95,13 @@ impl World for Workspace {
     }
 
     fn font(&self, id: usize) -> Option<Font> {
-        let mut resources = self.resources.write();
+        let mut resources = self.resources.blocking_write();
         self.fonts.font(id, &mut resources)
     }
 
     fn file(&self, typst_path: &TypstPath) -> FileResult<Buffer> {
         let lsp_uri = typst_to_lsp::path_to_uri(typst_path).unwrap();
-        let mut resources = self.resources.write();
+        let mut resources = self.resources.blocking_write();
         let lsp_resource = resources.get_or_insert_resource(lsp_uri)?;
         Ok(lsp_resource.into())
     }

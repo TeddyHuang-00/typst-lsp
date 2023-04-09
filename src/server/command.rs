@@ -53,14 +53,13 @@ impl TypstServer {
         let file_uri = Url::parse(file_uri)
             .map_err(|_| Error::invalid_params("Parameter is not a valid URI"))?;
 
-        let source = workspace
-            .sources
-            .get_source_by_uri(&file_uri)
-            .ok_or_else(|| {
-                Error::invalid_params(format!(
-                    "URI {file_uri} does not refer to a known source file"
-                ))
-            })?;
+        let sources = workspace.sources.read().await;
+
+        let source = sources.get_source_by_uri(&file_uri).ok_or_else(|| {
+            Error::invalid_params(format!(
+                "URI {file_uri} does not refer to a known source file"
+            ))
+        })?;
 
         self.run_export(workspace, source).await;
 

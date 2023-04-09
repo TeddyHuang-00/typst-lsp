@@ -1,7 +1,6 @@
 use server::TypstServer;
 use tower_lsp::{LspService, Server};
 
-mod command;
 mod config;
 mod ext;
 mod lsp_typst_boundary;

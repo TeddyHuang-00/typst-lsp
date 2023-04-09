@@ -16,6 +16,7 @@ pub mod log;
 pub mod lsp;
 pub mod signature;
 pub mod typst_compiler;
+pub mod watch;
 
 pub struct TypstServer {
     client: Client,
@@ -27,8 +28,8 @@ pub struct TypstServer {
 impl TypstServer {
     pub fn with_client(client: Client) -> Self {
         Self {
-            client,
-            workspace: Default::default(),
+            client: client.clone(),
+            workspace: RwLock::new(Workspace::with_client(client)),
             config: Default::default(),
             const_config: Default::default(),
         }
