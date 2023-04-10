@@ -94,44 +94,36 @@ impl LanguageServer for TypstServer {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
 
-        let mut workspace = self.workspace.write().await;
-        let mut sources = workspace.sources.write().await;
-
-        let id = sources.open(uri, text);
-
-        let workspace = workspace.downgrade();
+        let workspace = self.workspace.read().await;
+        let source = workspace.sources.open(uri, text).await;
         let config = self.config.read().await;
 
-        let source = sources.get_cached_source_by_id(id);
-
-        self.on_source_changed(&workspace, &config, source).await;
+        self.on_source_changed(&workspace, &config, &source).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.client
-            .publish_diagnostics(params.text_document.uri, Vec::new(), None)
-            .await;
+        let uri = params.text_document.uri;
+
+        let workspace = self.workspace.read().await;
+        workspace.sources.close(uri.clone());
+
+        self.client.publish_diagnostics(uri, Vec::new(), None).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         let changes = params.content_changes;
 
-        let mut workspace = self.workspace.write().await;
+        let workspace = self.workspace.read().await;
 
-        let source_id = workspace.sources.get_known_id_by_uri(&uri);
-
-        let source = workspace.sources.get_mut_cached_source_by_id(source_id);
+        let mut source = workspace.sources.get_mut_source_by_uri(uri).await.unwrap();
         for change in changes {
-            self.apply_single_document_change(source, change);
+            self.apply_single_document_change(&mut *source, change);
         }
 
-        let workspace = workspace.downgrade();
         let config = self.config.read().await;
 
-        let source = workspace.sources.get_cached_source_by_id(source_id);
-
-        self.on_source_changed(&workspace, &config, source).await;
+        self.on_source_changed(&workspace, &config, &*source).await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
@@ -142,11 +134,12 @@ impl LanguageServer for TypstServer {
 
         let source = workspace
             .sources
-            .get_source_by_uri(&uri)
+            .get_source_by_uri(uri)
+            .await
             .expect("source should exist after being saved");
 
         if config.export_pdf == ExportPdfMode::OnSave {
-            self.run_diagnostics_and_export(&workspace, source).await;
+            self.run_diagnostics_and_export(&workspace, &source).await;
         }
     }
 
@@ -183,21 +176,21 @@ impl LanguageServer for TypstServer {
     }
 
     async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
-        let uri = &params.text_document_position_params.text_document.uri;
+        let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
         let workspace = self.workspace.read().await;
 
-        let source = workspace.sources.get_source_by_uri(uri).unwrap();
+        let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
 
-        Ok(self.get_hover(&workspace, source, position))
+        Ok(self.get_hover(&workspace, &source, position))
     }
 
     async fn completion(
         &self,
         params: CompletionParams,
     ) -> jsonrpc::Result<Option<CompletionResponse>> {
-        let uri = &params.text_document_position.text_document.uri;
+        let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
         let explicit = params
             .context
@@ -206,12 +199,12 @@ impl LanguageServer for TypstServer {
 
         let workspace = self.workspace.read().await;
 
-        let source = workspace.sources.get_source_by_uri(uri).unwrap();
+        let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
 
         let typst_offset = lsp_to_typst::position_to_offset(
             position,
             self.get_const_config().position_encoding,
-            source,
+            &source,
         );
 
         let completions = autocomplete(&*workspace, &[], source.as_ref(), typst_offset, explicit);
@@ -231,14 +224,14 @@ impl LanguageServer for TypstServer {
         &self,
         params: SignatureHelpParams,
     ) -> jsonrpc::Result<Option<SignatureHelp>> {
-        let uri = &params.text_document_position_params.text_document.uri;
+        let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
         let workspace = self.workspace.read().await;
 
-        let source = workspace.sources.get_source_by_uri(uri).unwrap();
+        let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
 
-        Ok(self.get_signature_at_position(&workspace, source, position))
+        Ok(self.get_signature_at_position(&workspace, &source, position))
     }
 
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
