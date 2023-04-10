@@ -22,9 +22,15 @@ pub struct WorkspaceWorld {
     sources: OwnedRwLockWriteGuard<SourceManager>,
 }
 
-impl World for Workspace {
+impl WorkspaceWorld {
+    pub fn new(workspace: Arc<Workspace>, sources: OwnedRwLockWriteGuard<SourceManager>) -> Self {
+        Self { workspace, sources }
+    }
+}
+
+impl World for WorkspaceWorld {
     fn library(&self) -> &Prehashed<Library> {
-        &self.typst_stdlib
+        &self.workspace.typst_stdlib
     }
 
     fn main(&self) -> &TypstSource {
@@ -75,59 +81,39 @@ impl World for Workspace {
     fn source<'a>(&'a self, typst_id: TypstSourceId) -> &'a TypstSource {
         let id = typst_id.into();
 
-        // Handle::current().block_on(async {
-        //     match self.sources.get_source(id).await {
-        //         Ok(source) => {
-        //             let a: RwLockReadGuard<'a, _> = source;
-        //             let b: &'a Source = a.deref();
-        //             // let c: &'a TypstSource = b.as_ref();
-        //             // c
-        //             b.as_ref()
-        //         }
-        //         Err(error) => {
-        //             // We cache in `resolve` to try avoiding this, since we can't return errors here
-        //             self.client.log_message(
-        //                 MessageType::ERROR,
-        //                 format!("unable to get source id {typst_id:?} because an error occurred: {error}")
-        //             ).await;
-        //             &self.detached_source
-        //         }
-        //     }
-        // })
-
-        let source = Handle::current().block_on(async { self.sources.get_source(id).await });
-        source.unwrap().as_ref()
-        //  {
-        //     Ok(source) => {
-        //         let a: RwLockReadGuard<'a, _> = source;
-        //         let b: &'a Source = a.deref();
-        //         // let c: &'a TypstSource = b.as_ref();
-        //         // c
-        //         b.as_ref()
-        //     }
-        //     Err(error) => {
-        //         // We cache in `resolve` to try avoiding this, since we can't return errors here
-        //         self.client.log_message(
-        //             MessageType::ERROR,
-        //             format!("unable to get source id {typst_id:?} because an error occurred: {error}")
-        //         ).await;
-        //         &self.detached_source
-        //     }
-        // }
+        Handle::current().block_on(async {
+            match self.sources.get_source(id).await {
+                Ok(source) => {
+                    let a: RwLockReadGuard<'a, _> = source;
+                    let b: &'a Source = a.deref();
+                    // let c: &'a TypstSource = b.as_ref();
+                    // c
+                    b.as_ref()
+                }
+                Err(error) => {
+                    // We cache in `resolve` to try avoiding this, since we can't return errors here
+                    self.workspace.client.log_message(
+                        MessageType::ERROR,
+                        format!("unable to get source id {typst_id:?} because an error occurred: {error}")
+                    ).await;
+                    &self.workspace.detached_source
+                }
+            }
+        })
     }
 
     fn book(&self) -> &Prehashed<FontBook> {
-        self.fonts.book()
+        self.workspace.fonts.book()
     }
 
     fn font(&self, id: usize) -> Option<Font> {
-        let mut resources = self.resources.blocking_write();
-        self.fonts.font(id, &mut resources)
+        let mut resources = self.workspace.resources.blocking_write();
+        self.workspace.fonts.font(id, &mut resources)
     }
 
     fn file(&self, typst_path: &TypstPath) -> FileResult<Buffer> {
         let lsp_uri = typst_to_lsp::path_to_uri(typst_path).unwrap();
-        let mut resources = self.resources.blocking_write();
+        let mut resources = self.workspace.resources.blocking_write();
         let lsp_resource = resources.get_or_insert_resource(lsp_uri)?;
         Ok(lsp_resource.into())
     }

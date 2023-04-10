@@ -5,7 +5,6 @@ use tower_lsp::lsp_types::{
 };
 use typst::eval::{CastInfo, FuncInfo, Scope, Value};
 use typst::syntax::{ast, LinkedNode, SyntaxKind};
-use typst::World;
 
 use crate::ext::StrExt;
 use crate::lsp_typst_boundary::{lsp_to_typst, LspCharacterOffset, LspPosition, TypstOffset};
@@ -21,7 +20,7 @@ impl TypstServer {
         source: &Source,
         position: LspPosition,
     ) -> Option<SignatureHelp> {
-        let global = workspace.library().global.scope();
+        let global = self.workspace.typst_stdlib.global.scope();
 
         let typst_offset = lsp_to_typst::position_to_offset(
             position,

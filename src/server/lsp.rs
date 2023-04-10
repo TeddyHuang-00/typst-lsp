@@ -10,254 +10,257 @@ use crate::lsp_typst_boundary::{lsp_to_typst, typst_to_lsp, TypstPathOwned};
 use super::command::LspCommand;
 use super::TypstServer;
 
-#[tower_lsp::async_trait]
-impl LanguageServer for TypstServer {
-    async fn initialize(&self, params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
-        // Check if a folder is opened, if yes, use it as the root path
-        let root_path = match &params.root_uri {
-            Some(root) => root.to_file_path().unwrap(),
-            None => TypstPathOwned::new(),
-        };
+// #[tower_lsp::async_trait]
+// impl LanguageServer for TypstServer {
+//     async fn initialize(&self, params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
+//         // Check if a folder is opened, if yes, use it as the root path
+//         let root_path = match &params.root_uri {
+//             Some(root) => root.to_file_path().unwrap(),
+//             None => TypstPathOwned::new(),
+//         };
 
-        let position_encoding = if params
-            .position_encodings()
-            .contains(&PositionEncodingKind::UTF8)
-        {
-            PositionEncoding::Utf8
-        } else {
-            PositionEncoding::Utf16
-        };
+//         let position_encoding = if params
+//             .position_encodings()
+//             .contains(&PositionEncodingKind::UTF8)
+//         {
+//             PositionEncoding::Utf8
+//         } else {
+//             PositionEncoding::Utf16
+//         };
 
-        self.const_config
-            .set(ConstConfig { position_encoding })
-            .expect("const config should not yet be initialized");
+//         self.const_config
+//             .set(ConstConfig { position_encoding })
+//             .expect("const config should not yet be initialized");
 
-        Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                signature_help_provider: Some(SignatureHelpOptions {
-                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
-                    retrigger_characters: None,
-                    work_done_progress_options: WorkDoneProgressOptions {
-                        work_done_progress: None,
-                    },
-                }),
-                hover_provider: Some(HoverProviderCapability::Simple(true)),
-                completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec![
-                        String::from("#"),
-                        String::from("."),
-                        String::from("@"),
-                    ]),
-                    ..Default::default()
-                }),
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
-                )),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: LspCommand::all_as_string(),
-                    work_done_progress_options: WorkDoneProgressOptions {
-                        work_done_progress: None,
-                    },
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-    }
+//         Ok(InitializeResult {
+//             capabilities: ServerCapabilities {
+//                 signature_help_provider: Some(SignatureHelpOptions {
+//                     trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+//                     retrigger_characters: None,
+//                     work_done_progress_options: WorkDoneProgressOptions {
+//                         work_done_progress: None,
+//                     },
+//                 }),
+//                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+//                 completion_provider: Some(CompletionOptions {
+//                     trigger_characters: Some(vec![
+//                         String::from("#"),
+//                         String::from("."),
+//                         String::from("@"),
+//                     ]),
+//                     ..Default::default()
+//                 }),
+//                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
+//                     TextDocumentSyncKind::INCREMENTAL,
+//                 )),
+//                 execute_command_provider: Some(ExecuteCommandOptions {
+//                     commands: LspCommand::all_as_string(),
+//                     work_done_progress_options: WorkDoneProgressOptions {
+//                         work_done_progress: None,
+//                     },
+//                 }),
+//                 ..Default::default()
+//             },
+//             ..Default::default()
+//         })
+//     }
 
-    async fn initialized(&self, _: InitializedParams) {
-        let watch_files_error = self
-            .client
-            .register_capability(vec![self.get_watcher_registration()])
-            .await
-            .err();
+//     async fn initialized(&self, _: InitializedParams) {
+//         let watch_files_error = self
+//             .client
+//             .register_capability(vec![self.get_watcher_registration()])
+//             .await
+//             .err();
 
-        if let Some(error) = watch_files_error {
-            self.client
-                .log_message(
-                    MessageType::ERROR,
-                    format!("could not register to watch Typst files: {error}"),
-                )
-                .await;
-        }
+//         if let Some(error) = watch_files_error {
+//             self.client
+//                 .log_message(
+//                     MessageType::ERROR,
+//                     format!("could not register to watch Typst files: {error}"),
+//                 )
+//                 .await;
+//         }
 
-        self.client
-            .log_message(MessageType::INFO, "server initialized!")
-            .await;
-    }
+//         self.client
+//             .log_message(MessageType::INFO, "server initialized!")
+//             .await;
+//     }
 
-    async fn shutdown(&self) -> jsonrpc::Result<()> {
-        Ok(())
-    }
+//     async fn shutdown(&self) -> jsonrpc::Result<()> {
+//         Ok(())
+//     }
 
-    async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri;
-        let text = params.text_document.text;
+//     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+//         let uri = params.text_document.uri;
+//         let text = params.text_document.text;
 
-        let workspace = self.workspace.read().await;
-        let source = workspace.sources.open(uri, text).await;
-        let config = self.config.read().await;
+//         let sources = self.workspace.sources.read().await;
+//         let source = sources.open(uri, text).await;
+//         let config = self.config.read().await;
 
-        self.on_source_changed(&workspace, &config, &source).await;
-    }
+//         self.on_source_changed(&config, &source).await;
+//     }
 
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri;
+//     async fn did_close(&self, params: DidCloseTextDocumentParams) {
+//         let uri = params.text_document.uri;
 
-        let workspace = self.workspace.read().await;
-        workspace.sources.close(uri.clone());
+//         let sources = self.workspace.sources.read().await;
+//         sources.close(uri.clone());
 
-        self.client.publish_diagnostics(uri, Vec::new(), None).await;
-    }
+//         self.client.publish_diagnostics(uri, Vec::new(), None).await;
+//     }
 
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let uri = params.text_document.uri;
-        let changes = params.content_changes;
+//     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+//         let uri = params.text_document.uri;
+//         let changes = params.content_changes;
 
-        let workspace = self.workspace.read().await;
+//         let mut source = self
+//             .workspace
+//             .sources
+//             .get_mut_source_by_uri(uri)
+//             .await
+//             .unwrap();
+//         for change in changes {
+//             self.apply_single_document_change(&mut *source, change);
+//         }
 
-        let mut source = workspace.sources.get_mut_source_by_uri(uri).await.unwrap();
-        for change in changes {
-            self.apply_single_document_change(&mut *source, change);
-        }
+//         let config = self.config.read().await;
 
-        let config = self.config.read().await;
+//         self.on_source_changed(&config, &*source).await;
+//     }
 
-        self.on_source_changed(&workspace, &config, &*source).await;
-    }
+//     async fn did_save(&self, params: DidSaveTextDocumentParams) {
+//         let uri = params.text_document.uri;
 
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let uri = params.text_document.uri;
+//         let workspace = self.workspace.read().await;
+//         let config = self.config.read().await;
 
-        let workspace = self.workspace.read().await;
-        let config = self.config.read().await;
+//         let source = workspace
+//             .sources
+//             .get_source_by_uri(uri)
+//             .await
+//             .expect("source should exist after being saved");
 
-        let source = workspace
-            .sources
-            .get_source_by_uri(uri)
-            .await
-            .expect("source should exist after being saved");
+//         if config.export_pdf == ExportPdfMode::OnSave {
+//             self.run_diagnostics_and_export(&workspace, &source).await;
+//         }
+//     }
 
-        if config.export_pdf == ExportPdfMode::OnSave {
-            self.run_diagnostics_and_export(&workspace, &source).await;
-        }
-    }
+//     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+//         self.client
+//             .log_message(
+//                 MessageType::INFO,
+//                 format!("changed watched files: {params:#?}"),
+//             )
+//             .await;
+//     }
 
-    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("changed watched files: {params:#?}"),
-            )
-            .await;
-    }
+//     async fn execute_command(
+//         &self,
+//         params: ExecuteCommandParams,
+//     ) -> jsonrpc::Result<Option<JsonValue>> {
+//         let workspace = self.workspace.read().await;
 
-    async fn execute_command(
-        &self,
-        params: ExecuteCommandParams,
-    ) -> jsonrpc::Result<Option<JsonValue>> {
-        let workspace = self.workspace.read().await;
+//         let ExecuteCommandParams {
+//             command,
+//             arguments,
+//             work_done_progress_params: _,
+//         } = params;
+//         self.client.log_message(MessageType::INFO, &command).await;
+//         match LspCommand::parse(&command) {
+//             Some(LspCommand::ExportPdf) => {
+//                 self.command_export_pdf(&workspace, arguments).await?;
+//             }
+//             None => {
+//                 return Err(jsonrpc::Error::method_not_found());
+//             }
+//         };
+//         Ok(None)
+//     }
 
-        let ExecuteCommandParams {
-            command,
-            arguments,
-            work_done_progress_params: _,
-        } = params;
-        self.client.log_message(MessageType::INFO, &command).await;
-        match LspCommand::parse(&command) {
-            Some(LspCommand::ExportPdf) => {
-                self.command_export_pdf(&workspace, arguments).await?;
-            }
-            None => {
-                return Err(jsonrpc::Error::method_not_found());
-            }
-        };
-        Ok(None)
-    }
+//     async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
+//         let uri = params.text_document_position_params.text_document.uri;
+//         let position = params.text_document_position_params.position;
 
-    async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        let position = params.text_document_position_params.position;
+//         let workspace = self.workspace.read().await;
 
-        let workspace = self.workspace.read().await;
+//         let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
 
-        let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
+//         Ok(self.get_hover(&workspace, &source, position))
+//     }
 
-        Ok(self.get_hover(&workspace, &source, position))
-    }
+//     async fn completion(
+//         &self,
+//         params: CompletionParams,
+//     ) -> jsonrpc::Result<Option<CompletionResponse>> {
+//         let uri = params.text_document_position.text_document.uri;
+//         let position = params.text_document_position.position;
+//         let explicit = params
+//             .context
+//             .map(|context| context.trigger_kind == CompletionTriggerKind::INVOKED)
+//             .unwrap_or(false);
 
-    async fn completion(
-        &self,
-        params: CompletionParams,
-    ) -> jsonrpc::Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
-        let position = params.text_document_position.position;
-        let explicit = params
-            .context
-            .map(|context| context.trigger_kind == CompletionTriggerKind::INVOKED)
-            .unwrap_or(false);
+//         let workspace = self.workspace.read().await;
 
-        let workspace = self.workspace.read().await;
+//         let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
 
-        let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
+//         let typst_offset = lsp_to_typst::position_to_offset(
+//             position,
+//             self.get_const_config().position_encoding,
+//             &source,
+//         );
 
-        let typst_offset = lsp_to_typst::position_to_offset(
-            position,
-            self.get_const_config().position_encoding,
-            &source,
-        );
+//         let completions = autocomplete(&*workspace, &[], source.as_ref(), typst_offset, explicit);
 
-        let completions = autocomplete(&*workspace, &[], source.as_ref(), typst_offset, explicit);
+//         match completions {
+//             Some((_, c)) => {
+//                 let lsp_completions = c.iter().map(typst_to_lsp::completion).collect();
+//                 return Ok(Some(CompletionResponse::Array(lsp_completions)));
+//             }
+//             None => {
+//                 return Ok(None);
+//             }
+//         }
+//     }
 
-        match completions {
-            Some((_, c)) => {
-                let lsp_completions = c.iter().map(typst_to_lsp::completion).collect();
-                return Ok(Some(CompletionResponse::Array(lsp_completions)));
-            }
-            None => {
-                return Ok(None);
-            }
-        }
-    }
+//     async fn signature_help(
+//         &self,
+//         params: SignatureHelpParams,
+//     ) -> jsonrpc::Result<Option<SignatureHelp>> {
+//         let uri = params.text_document_position_params.text_document.uri;
+//         let position = params.text_document_position_params.position;
 
-    async fn signature_help(
-        &self,
-        params: SignatureHelpParams,
-    ) -> jsonrpc::Result<Option<SignatureHelp>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        let position = params.text_document_position_params.position;
+//         let workspace = self.workspace.read().await;
 
-        let workspace = self.workspace.read().await;
+//         let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
 
-        let source = workspace.sources.get_source_by_uri(uri).await.unwrap();
+//         Ok(self.get_signature_at_position(&workspace, &source, position))
+//     }
 
-        Ok(self.get_signature_at_position(&workspace, &source, position))
-    }
-
-    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
-        let settings = params.settings;
-        let mut config = self.config.write().await;
-        if let JsonValue::Object(settings) = settings {
-            let export_pdf = settings
-                .get("exportPdf")
-                .map(|val| match val {
-                    JsonValue::String(val) => match val.as_str() {
-                        "never" => ExportPdfMode::Never,
-                        "onSave" => ExportPdfMode::OnSave,
-                        "onType" => ExportPdfMode::OnType,
-                        _ => ExportPdfMode::OnSave,
-                    },
-                    _ => ExportPdfMode::OnSave,
-                })
-                .unwrap_or_default();
-            config.export_pdf = export_pdf;
-            self.client
-                .log_message(MessageType::INFO, "New settings applied")
-                .await;
-        } else {
-            self.client
-                .log_message(MessageType::ERROR, "Got invalid configuration object")
-                .await;
-        }
-    }
-}
+//     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+//         let settings = params.settings;
+//         let mut config = self.config.write().await;
+//         if let JsonValue::Object(settings) = settings {
+//             let export_pdf = settings
+//                 .get("exportPdf")
+//                 .map(|val| match val {
+//                     JsonValue::String(val) => match val.as_str() {
+//                         "never" => ExportPdfMode::Never,
+//                         "onSave" => ExportPdfMode::OnSave,
+//                         "onType" => ExportPdfMode::OnType,
+//                         _ => ExportPdfMode::OnSave,
+//                     },
+//                     _ => ExportPdfMode::OnSave,
+//                 })
+//                 .unwrap_or_default();
+//             config.export_pdf = export_pdf;
+//             self.client
+//                 .log_message(MessageType::INFO, "New settings applied")
+//                 .await;
+//         } else {
+//             self.client
+//                 .log_message(MessageType::ERROR, "Got invalid configuration object")
+//                 .await;
+//         }
+//     }
+// }

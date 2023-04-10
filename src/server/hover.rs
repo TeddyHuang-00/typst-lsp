@@ -4,24 +4,21 @@ use typst::syntax::LinkedNode;
 use crate::lsp_typst_boundary::workaround::ide::tooltip::tooltip;
 use crate::lsp_typst_boundary::{lsp_to_typst, typst_to_lsp, LspPosition};
 use crate::workspace::source::Source;
-use crate::workspace::Workspace;
 
 use super::TypstServer;
 
 impl TypstServer {
-    pub fn get_hover(
-        &self,
-        workspace: &Workspace,
-        source: &Source,
-        position: LspPosition,
-    ) -> Option<Hover> {
+    pub async fn get_hover(&self, source: &Source, position: LspPosition) -> Option<Hover> {
         let typst_offset = lsp_to_typst::position_to_offset(
             position,
             self.get_const_config().position_encoding,
             source,
         );
 
-        let typst_tooltip = tooltip(workspace, &[], source.as_ref(), typst_offset)?;
+        let world = self.workspace.get_world().await;
+        let typst_tooltip = tooltip(&world, &[], source.as_ref(), typst_offset)?;
+        drop(world);
+
         let lsp_tooltip = typst_to_lsp::tooltip(&typst_tooltip);
 
         let typst_hovered_node = LinkedNode::new(source.as_ref().root()).leaf_at(typst_offset)?;

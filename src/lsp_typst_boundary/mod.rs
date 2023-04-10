@@ -125,6 +125,7 @@ pub mod lsp_to_typst {
 }
 
 pub mod typst_to_lsp {
+    use futures::future::join_all;
     use itertools::Itertools;
     use lazy_static::lazy_static;
     use regex::{Captures, Regex};
@@ -132,7 +133,6 @@ pub mod typst_to_lsp {
         DiagnosticSeverity, InsertTextFormat, LanguageString, MarkedString,
     };
     use typst::syntax::Source;
-    use typst::World;
     use typst_library::prelude::EcoString;
 
     use crate::config::ConstConfig;
@@ -233,13 +233,20 @@ pub mod typst_to_lsp {
         }
     }
 
-    pub fn source_error_to_diagnostic(
+    pub async fn source_error_to_diagnostic(
         typst_error: &TypstSourceError,
         workspace: &Workspace,
         const_config: &ConstConfig,
     ) -> (Url, LspDiagnostic) {
         let typst_span = typst_error.span;
-        let typst_source = workspace.source(typst_span.source());
+
+        let sources = workspace.sources.read().await;
+
+        let source = sources
+            .get_source(typst_span.source().into())
+            .await
+            .unwrap();
+        let typst_source = source.as_ref();
 
         let typst_range = typst_source.range(typst_span);
         let lsp_range = range(typst_range, typst_source, const_config.position_encoding);
@@ -258,15 +265,19 @@ pub mod typst_to_lsp {
         (uri, diagnostic)
     }
 
-    pub fn source_errors_to_diagnostics<'a>(
+    pub async fn source_errors_to_diagnostics<'a>(
         errors: impl IntoIterator<Item = &'a TypstSourceError>,
         workspace: &Workspace,
         const_config: &ConstConfig,
     ) -> LspDiagnostics {
-        errors
-            .into_iter()
-            .map(|error| typst_to_lsp::source_error_to_diagnostic(error, workspace, const_config))
-            .into_group_map()
+        join_all(
+            errors.into_iter().map(|error| {
+                typst_to_lsp::source_error_to_diagnostic(error, workspace, const_config)
+            }),
+        )
+        .await
+        .into_iter()
+        .into_group_map()
     }
 
     pub fn tooltip(typst_tooltip: &TypstTooltip) -> LspHoverContents {

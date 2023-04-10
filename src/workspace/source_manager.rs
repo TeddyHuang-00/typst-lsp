@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::mem;
 
 use append_only_vec::AppendOnlyVec;
+use elsa::sync::FrozenVec;
 use futures::{stream, StreamExt};
 use tokio::sync::{RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
 use tower_lsp::lsp_types::Url;
@@ -90,7 +91,7 @@ impl CachedSource {
 /// Owns, tracks, and caches Typst source files and their ids
 pub struct SourceManager {
     ids: RwLock<HashMap<Url, SourceId>>,
-    sources: AppendOnlyVec<RwLock<CachedSource>>,
+    sources: FrozenVec<Box<RwLock<CachedSource>>>,
 }
 
 impl SourceManager {
@@ -120,8 +121,7 @@ impl SourceManager {
             Entry::Vacant(entry) => {
                 let source = Source::new_from_file(next_id, uri).await?;
 
-                self.sources
-                    .push(RwLock::new(CachedSource::ClosedUnmodified(source)));
+                self.sources.push(Box::new(RwLock::new(CachedSource::ClosedUnmodified(source))));
                 Ok(*entry.insert(next_id))
             }
             Entry::Occupied(entry) => Ok(*entry.get()),
@@ -130,6 +130,7 @@ impl SourceManager {
 
     /// Get a `CachedSource` by its id
     async fn get_cached_source(&self, id: SourceId) -> RwLockWriteGuard<CachedSource> {
+        let source = &self.sources[id.0 as usize];
         self.sources[id.0 as usize].write().await
     }
 
@@ -149,6 +150,10 @@ impl SourceManager {
         // Since the source was just cached, we should always be able to get it
         RwLockWriteGuard::try_map(cached_source, |source| source.get_mut_cached_source())
             .map_err(|_| unreachable!())
+    }
+
+    pub fn test(&mut self, id: SourceId) -> &Source {
+        self.sources[]
     }
 
     /// Cache a file so it may not need to be loaded later

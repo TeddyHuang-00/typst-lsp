@@ -20,7 +20,7 @@ pub mod watch;
 
 pub struct TypstServer {
     client: Client,
-    workspace: RwLock<Workspace>,
+    workspace: Arc<Workspace>,
     config: Arc<RwLock<Config>>,
     const_config: OnceCell<ConstConfig>,
 }
@@ -29,7 +29,7 @@ impl TypstServer {
     pub fn with_client(client: Client) -> Self {
         Self {
             client: client.clone(),
-            workspace: RwLock::new(Workspace::with_client(client)),
+            workspace: Arc::new(Workspace::with_client(client)),
             config: Default::default(),
             const_config: Default::default(),
         }

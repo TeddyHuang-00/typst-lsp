@@ -1,11 +1,14 @@
 //! Holds types relating to the LSP concept of a "workspace". That is, the directories a user has
 //! open in their editor, the files in them, the files they're currently editing, and so on.
 
+use std::sync::Arc;
+
 use comemo::Prehashed;
 use tokio::sync::RwLock;
 use tower_lsp::Client;
 use typst::eval::Library;
 
+use crate::lsp_typst_boundary::world::WorkspaceWorld;
 use crate::lsp_typst_boundary::TypstSource;
 
 use self::font_manager::FontManager;
@@ -19,7 +22,7 @@ pub mod source;
 pub mod source_manager;
 
 pub struct Workspace {
-    pub sources: RwLock<SourceManager>,
+    pub sources: Arc<RwLock<SourceManager>>,
     pub resources: RwLock<ResourceManager>,
 
     pub client: Client,
@@ -40,5 +43,10 @@ impl Workspace {
             fonts: FontManager::builder().with_system().with_embedded().build(),
             detached_source: TypstSource::detached(""),
         }
+    }
+
+    pub async fn get_world(self: &Arc<Self>) -> WorkspaceWorld {
+        let sources = self.sources.clone().write_owned().await;
+        WorkspaceWorld::new(self.clone(), sources)
     }
 }

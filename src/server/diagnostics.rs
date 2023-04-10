@@ -4,18 +4,15 @@ use futures::future::join_all;
 use tower_lsp::lsp_types::Url;
 
 use crate::lsp_typst_boundary::LspDiagnostic;
-use crate::workspace::Workspace;
 
 use super::TypstServer;
 
 impl TypstServer {
-    pub async fn update_all_diagnostics(
-        &self,
-        workspace: &Workspace,
-        mut diagnostics: HashMap<Url, Vec<LspDiagnostic>>,
-    ) {
+    pub async fn update_all_diagnostics(&self, mut diagnostics: HashMap<Url, Vec<LspDiagnostic>>) {
+        let sources = self.workspace.sources.read().await;
+
         // Clear the previous diagnostics (could be done with the refresh notification when implemented by tower-lsp)
-        for uri in workspace.sources.open_uris().await {
+        for uri in sources.open_uris().await {
             diagnostics.entry(uri).or_insert_with(Vec::new);
         }
 
